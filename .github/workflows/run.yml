@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # 每天中午20点执行
-    - cron: "0 12 * * *"
+    - cron: "0 8 * * *"
 
 jobs:
   ChangBuShu:
