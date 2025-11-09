@@ -47,12 +47,12 @@ def get_weekday_step_range():
     weekday = current_time.weekday()  # 0=周一, 1=周二, ..., 6=周日
     
     if weekday < 5:  # 周一到周五 (0-4)
-        min_step = 2000
-        max_step = 3000
+        min_step = 8000
+        max_step = 12000
         day_name = ["周一", "周二", "周三", "周四", "周五"][weekday]
     else:  # 周末 (5-6)
-        min_step = 3300
-        max_step = 3400
+        min_step = 6000
+        max_step = 10000
         day_name = "周六" if weekday == 5 else "周日"
     
     print(f"今天是{day_name}，步数范围：{min_step} ~ {max_step}")
