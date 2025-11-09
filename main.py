@@ -21,7 +21,7 @@ def get_int_value_default(_config: dict, _key, default):
     return int(_config.get(_key))
 
 
-# 获取当前时间对应的最大和最小步数
+# 获取当前时间对应的最大和最小步数（原方法 - 已弃用）
 def get_min_max_by_time(hour=None, minute=None):
     if hour is None:
         hour = time_bj.hour
@@ -31,6 +31,32 @@ def get_min_max_by_time(hour=None, minute=None):
     min_step = get_int_value_default(config, 'MIN_STEP', 18000)
     max_step = get_int_value_default(config, 'MAX_STEP', 25000)
     return int(time_rate * min_step), int(time_rate * max_step)
+
+
+# 根据星期几获取步数范围
+def get_weekday_step_range():
+    """
+    根据当前是星期几返回不同的步数范围
+    周一到周五：8000-12000
+    周末（周六、周日）：6000-10000
+    
+    返回:
+        tuple: (最小步数, 最大步数)
+    """
+    current_time = get_beijing_time()
+    weekday = current_time.weekday()  # 0=周一, 1=周二, ..., 6=周日
+    
+    if weekday < 5:  # 周一到周五 (0-4)
+        min_step = 2000
+        max_step = 3000
+        day_name = ["周一", "周二", "周三", "周四", "周五"][weekday]
+    else:  # 周末 (5-6)
+        min_step = 3000
+        max_step = 3200
+        day_name = "周六" if weekday == 5 else "周日"
+    
+    print(f"今天是{day_name}，步数范围：{min_step} ~ {max_step}")
+    return min_step, max_step
 
 
 # 虚拟ip地址
@@ -81,26 +107,26 @@ def get_error_code(location):
         return None
     return result[0]
 
-
-# pushplus消息推送
-def push_plus(title, content):
-    requestUrl = f"http://www.pushplus.plus/send"
-    data = {
-        "token": PUSH_PLUS_TOKEN,
-        "title": title,
-        "content": content,
-        "template": "html",
-        "channel": "wechat"
-    }
-    try:
-        response = requests.post(requestUrl, data=data)
-        if response.status_code == 200:
-            json_res = response.json()
-            print(f"pushplus推送完毕：{json_res['code']}-{json_res['msg']}")
-        else:
-            print("pushplus推送失败")
-    except:
-        print("pushplus推送异常")
+#
+# # pushplus消息推送
+# def push_plus(title, content):
+#     requestUrl = f"http://www.pushplus.plus/send"
+#     data = {
+#         "token": PUSH_PLUS_TOKEN,
+#         "title": title,
+#         "content": content,
+#         "template": "html",
+#         "channel": "wechat"
+#     }
+#     try:
+#         response = requests.post(requestUrl, data=data)
+#         if response.status_code == 200:
+#             json_res = response.json()
+#             print(f"pushplus推送完毕：{json_res['code']}-{json_res['msg']}")
+#         else:
+#             print("pushplus推送失败")
+#     except:
+#         print("pushplus推送异常")
 
 
 class MiMotionRunner:
@@ -207,83 +233,83 @@ class MiMotionRunner:
         ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
         return f"修改步数（{step}）[" + msg + "]", ok
 
+#
+# # 启动主函数
+# def push_to_push_plus(exec_results, summary):
+#     # 判断是否需要pushplus推送
+#     if PUSH_PLUS_TOKEN is not None and PUSH_PLUS_TOKEN != '' and PUSH_PLUS_TOKEN != 'NO':
+#         if PUSH_PLUS_HOUR is not None and PUSH_PLUS_HOUR.isdigit():
+#             if time_bj.hour != int(PUSH_PLUS_HOUR):
+#                 print(f"当前设置push_plus推送整点为：{PUSH_PLUS_HOUR}, 当前整点为：{time_bj.hour}，跳过推送")
+#                 return
+#         html = f'<div>{summary}</div>'
+#         if len(exec_results) >= PUSH_PLUS_MAX:
+#             html += '<div>账号数量过多，详细情况请前往github actions中查看</div>'
+#         else:
+#             html += '<ul>'
+#             for exec_result in exec_results:
+#                 success = exec_result['success']
+#                 if success is not None and success is True:
+#                     html += f'<li><span>账号：{exec_result["user"]}</span>刷步数成功，接口返回：{exec_result["msg"]}</li>'
+#                 else:
+#                     html += f'<li><span>账号：{exec_result["user"]}</span>刷步数失败，失败原因：{exec_result["msg"]}</li>'
+#             html += '</ul>'
+#         push_plus(f"{format_now()} 刷步数通知", html)
+#
+#
+# def run_single_account(total, idx, user_mi, passwd_mi):
+#     idx_info = ""
+#     if idx is not None:
+#         idx_info = f"[{idx + 1}/{total}]"
+#     log_str = f"[{format_now()}]\n{idx_info}账号：{desensitize_user_name(user_mi)}\n"
+#     try:
+#         runner = MiMotionRunner(user_mi, passwd_mi)
+#         exec_msg, success = runner.login_and_post_step(min_step, max_step)
+#         log_str += runner.log_str
+#         log_str += f'{exec_msg}\n'
+#         exec_result = {"user": user_mi, "success": success,
+#                        "msg": exec_msg}
+#     except:
+#         log_str += f"执行异常:{traceback.format_exc()}\n"
+#         log_str += traceback.format_exc()
+#         exec_result = {"user": user_mi, "success": False,
+#                        "msg": f"执行异常:{traceback.format_exc()}"}
+#     print(log_str)
+#     return exec_result
 
-# 启动主函数
-def push_to_push_plus(exec_results, summary):
-    # 判断是否需要pushplus推送
-    if PUSH_PLUS_TOKEN is not None and PUSH_PLUS_TOKEN != '' and PUSH_PLUS_TOKEN != 'NO':
-        if PUSH_PLUS_HOUR is not None and PUSH_PLUS_HOUR.isdigit():
-            if time_bj.hour != int(PUSH_PLUS_HOUR):
-                print(f"当前设置push_plus推送整点为：{PUSH_PLUS_HOUR}, 当前整点为：{time_bj.hour}，跳过推送")
-                return
-        html = f'<div>{summary}</div>'
-        if len(exec_results) >= PUSH_PLUS_MAX:
-            html += '<div>账号数量过多，详细情况请前往github actions中查看</div>'
-        else:
-            html += '<ul>'
-            for exec_result in exec_results:
-                success = exec_result['success']
-                if success is not None and success is True:
-                    html += f'<li><span>账号：{exec_result["user"]}</span>刷步数成功，接口返回：{exec_result["msg"]}</li>'
-                else:
-                    html += f'<li><span>账号：{exec_result["user"]}</span>刷步数失败，失败原因：{exec_result["msg"]}</li>'
-            html += '</ul>'
-        push_plus(f"{format_now()} 刷步数通知", html)
 
-
-def run_single_account(total, idx, user_mi, passwd_mi):
-    idx_info = ""
-    if idx is not None:
-        idx_info = f"[{idx + 1}/{total}]"
-    log_str = f"[{format_now()}]\n{idx_info}账号：{desensitize_user_name(user_mi)}\n"
-    try:
-        runner = MiMotionRunner(user_mi, passwd_mi)
-        exec_msg, success = runner.login_and_post_step(min_step, max_step)
-        log_str += runner.log_str
-        log_str += f'{exec_msg}\n'
-        exec_result = {"user": user_mi, "success": success,
-                       "msg": exec_msg}
-    except:
-        log_str += f"执行异常:{traceback.format_exc()}\n"
-        log_str += traceback.format_exc()
-        exec_result = {"user": user_mi, "success": False,
-                       "msg": f"执行异常:{traceback.format_exc()}"}
-    print(log_str)
-    return exec_result
-
-
-def execute():
-    user_list = users.split('#')
-    passwd_list = passwords.split('#')
-    exec_results = []
-    if len(user_list) == len(passwd_list):
-        idx, total = 0, len(user_list)
-        if use_concurrent:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                exec_results = executor.map(lambda x: run_single_account(total, x[0], *x[1]),
-                                            enumerate(zip(user_list, passwd_list)))
-        else:
-            for user_mi, passwd_mi in zip(user_list, passwd_list):
-                exec_results.append(run_single_account(total, idx, user_mi, passwd_mi))
-                idx += 1
-                if idx < total:
-                    # 每个账号之间间隔一定时间请求一次，避免接口请求过于频繁导致异常
-                    time.sleep(sleep_seconds)
-        if encrypt_support:
-            persist_user_tokens()
-        success_count = 0
-        push_results = []
-        for result in exec_results:
-            push_results.append(result)
-            if result['success'] is True:
-                success_count += 1
-        summary = f"\n执行账号总数{total}，成功：{success_count}，失败：{total - success_count}"
-        print(summary)
-        push_to_push_plus(push_results, summary)
-    else:
-        print(f"账号数长度[{len(user_list)}]和密码数长度[{len(passwd_list)}]不匹配，跳过执行")
-        exit(1)
+# def execute():
+#     user_list = users.split('#')
+#     passwd_list = passwords.split('#')
+#     exec_results = []
+#     if len(user_list) == len(passwd_list):
+#         idx, total = 0, len(user_list)
+#         if use_concurrent:
+#             import concurrent.futures
+#             with concurrent.futures.ThreadPoolExecutor() as executor:
+#                 exec_results = executor.map(lambda x: run_single_account(total, x[0], *x[1]),
+#                                             enumerate(zip(user_list, passwd_list)))
+#         else:
+#             for user_mi, passwd_mi in zip(user_list, passwd_list):
+#                 exec_results.append(run_single_account(total, idx, user_mi, passwd_mi))
+#                 idx += 1
+#                 if idx < total:
+#                     # 每个账号之间间隔一定时间请求一次，避免接口请求过于频繁导致异常
+#                     time.sleep(sleep_seconds)
+#         if encrypt_support:
+#             persist_user_tokens()
+#         success_count = 0
+#         push_results = []
+#         for result in exec_results:
+#             push_results.append(result)
+#             if result['success'] is True:
+#                 success_count += 1
+#         summary = f"\n执行账号总数{total}，成功：{success_count}，失败：{total - success_count}"
+#         print(summary)
+#         push_to_push_plus(push_results, summary)
+#     else:
+#         print(f"账号数长度[{len(user_list)}]和密码数长度[{len(passwd_list)}]不匹配，跳过执行")
+#         exit(1)
 
 
 def prepare_user_tokens() -> dict:
@@ -310,51 +336,135 @@ def persist_user_tokens():
         f.flush()
         f.close()
 
-if __name__ == "__main__":
+
+# ==================== 本地执行配置 ====================
+# 请在这里直接修改配置，无需设置环境变量
+
+# 小米运动账号配置（手机号需要加+86前缀，或者使用邮箱）
+USER = "109@qq.com"  # 例如: "+8613812345678" 或 "example@email.com"
+PWD = "yue3"  # 小米运动密码
+# AES密钥配置（用于加密保存token，可选功能）
+AES_KEY = "asdhf34564edsqwe"  # 例如: "your16charkey123"
+
+# ===================================================
+
+
+def run_local():
+    """本地执行主函数 - 单账号版本"""
+    global time_bj, encrypt_support, user_tokens, aes_key, config, min_step, max_step
+    
+    print("="*50)
+    print("小米运动刷步数工具 - 本地版")
+    print("="*50)
+    
+    # 参数验证
+    if USER == "your_phone_or_email" or PWD == "your_password":
+        print("错误：请先在代码中配置您的账号和密码！")
+        print("请修改 USER 和 PWD 常量的值")
+        exit(1)
+    
     # 北京时间
     time_bj = get_beijing_time()
+    print(f"当前时间：{format_now()}")
+    
+    # 初始化加密支持
     encrypt_support = False
     user_tokens = dict()
-    if os.environ.__contains__("AES_KEY") is True:
-        aes_key = os.environ.get("AES_KEY")
-        if aes_key is not None:
-            aes_key = aes_key.encode('utf-8')
-            if len(aes_key) == 16:
-                encrypt_support = True
-        if encrypt_support:
+    
+    if AES_KEY is not None:
+        aes_key = AES_KEY.encode('utf-8')
+        if len(aes_key) == 16:
+            encrypt_support = True
             user_tokens = prepare_user_tokens()
+            print("加密保存功能已启用")
         else:
-            print("AES_KEY未设置或者无效 无法使用加密保存功能")
-    if os.environ.__contains__("CONFIG") is False:
-        print("未配置CONFIG变量，无法执行")
-        exit(1)
+            print("警告：AES_KEY长度不是16位，无法使用加密保存功能")
     else:
-        # region 初始化参数
-        config = dict()
-        try:
-            config = dict(json.loads(os.environ.get("CONFIG")))
-        except:
-            print("CONFIG格式不正确，请检查Secret配置，请严格按照JSON格式：使用双引号包裹字段和值，逗号不能多也不能少")
-            traceback.print_exc()
-            exit(1)
-        PUSH_PLUS_TOKEN = config.get('PUSH_PLUS_TOKEN')
-        PUSH_PLUS_HOUR = config.get('PUSH_PLUS_HOUR')
-        PUSH_PLUS_MAX = get_int_value_default(config, 'PUSH_PLUS_MAX', 30)
-        sleep_seconds = config.get('SLEEP_GAP')
-        if sleep_seconds is None or sleep_seconds == '':
-            sleep_seconds = 5
-        sleep_seconds = float(sleep_seconds)
-        users = config.get('USER')
-        passwords = config.get('PWD')
-        if users is None or passwords is None:
-            print("未正确配置账号密码，无法执行")
-            exit(1)
-        min_step, max_step = get_min_max_by_time()
-        use_concurrent = config.get('USE_CONCURRENT')
-        if use_concurrent is not None and use_concurrent == 'True':
-            use_concurrent = True
+        print("加密保存功能未启用")
+    
+    # 根据星期几获取步数范围
+    min_step, max_step = get_weekday_step_range()
+    
+    # 执行刷步数
+    print("\n开始执行刷步数...")
+    print("-"*50)
+    
+    try:
+        runner = MiMotionRunner(USER, PWD)
+        exec_msg, success = runner.login_and_post_step(min_step, max_step)
+        
+        print(runner.log_str)
+        print(f"执行结果：{exec_msg}")
+        
+        if success:
+            print("\n✓ 刷步数成功！")
         else:
-            print(f"多账号执行间隔：{sleep_seconds}")
-            use_concurrent = False
-        # endregion
-        execute()
+            print("\n✗ 刷步数失败！")
+        
+        # 如果启用了加密保存，保存token
+        if encrypt_support:
+            persist_user_tokens()
+            print("已保存登录token")
+            
+    except Exception as e:
+        print(f"执行异常：{str(e)}")
+        traceback.print_exc()
+    
+    print("="*50)
+
+
+# ==================== GitHub Actions 执行配置（原版） ====================
+#
+# if __name__ == "__main__":
+#     # 北京时间
+#     time_bj = get_beijing_time()
+#     encrypt_support = False
+#     user_tokens = dict()
+#     if os.environ.__contains__("AES_KEY") is True:
+#         aes_key = os.environ.get("AES_KEY")
+#         if aes_key is not None:
+#             aes_key = aes_key.encode('utf-8')
+#             if len(aes_key) == 16:
+#                 encrypt_support = True
+#         if encrypt_support:
+#             user_tokens = prepare_user_tokens()
+#         else:
+#             print("AES_KEY未设置或者无效 无法使用加密保存功能")
+#     if os.environ.__contains__("CONFIG") is False:
+#         print("未配置CONFIG变量，无法执行")
+#         exit(1)
+#     else:
+#         # region 初始化参数
+#         config = dict()
+#         try:
+#             config = dict(json.loads(os.environ.get("CONFIG")))
+#         except:
+#             print("CONFIG格式不正确，请检查Secret配置，请严格按照JSON格式：使用双引号包裹字段和值，逗号不能多也不能少")
+#             traceback.print_exc()
+#             exit(1)
+#         PUSH_PLUS_TOKEN = config.get('PUSH_PLUS_TOKEN')
+#         PUSH_PLUS_HOUR = config.get('PUSH_PLUS_HOUR')
+#         PUSH_PLUS_MAX = get_int_value_default(config, 'PUSH_PLUS_MAX', 30)
+#         sleep_seconds = config.get('SLEEP_GAP')
+#         if sleep_seconds is None or sleep_seconds == '':
+#             sleep_seconds = 5
+#         sleep_seconds = float(sleep_seconds)
+#         users = config.get('USER')
+#         passwords = config.get('PWD')
+#         if users is None or passwords is None:
+#             print("未正确配置账号密码，无法执行")
+#             exit(1)
+#         min_step, max_step = get_min_max_by_time()
+#         use_concurrent = config.get('USE_CONCURRENT')
+#         if use_concurrent is not None and use_concurrent == 'True':
+#             use_concurrent = True
+#         else:
+#             print(f"多账号执行间隔：{sleep_seconds}")
+#             use_concurrent = False
+#         # endregion
+#         execute()
+
+
+if __name__ == "__main__":
+    # 本地执行入口
+    run_local()
