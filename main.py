@@ -357,40 +357,83 @@ def run_local():
     print("小米运动刷步数工具 - 本地版")
     print("="*50)
     
-    # 参数验证
-    if USER == "your_phone_or_email" or PWD == "your_password":
-        print("错误：请先在代码中配置您的账号和密码！")
-        print("请修改 USER 和 PWD 常量的值")
-        exit(1)
-    
     # 北京时间
     time_bj = get_beijing_time()
     print(f"当前时间：{format_now()}")
+    print("-"*50)
+    
+    # ========== 配置读取：优先环境变量，其次本地配置 ==========
+    
+    # 1. 读取账号密码配置
+    user = None
+    pwd = None
+    
+    # 优先从环境变量 CONFIG 中读取
+    if os.environ.get("CONFIG"):
+        try:
+            config_data = json.loads(os.environ.get("CONFIG"))
+            user = config_data.get('USER')
+            pwd = config_data.get('PWD')
+            if user and pwd:
+                print("✓ 账号密码：从环境变量 CONFIG 中读取")
+            else:
+                print("⚠ 环境变量 CONFIG 中未找到有效的账号密码配置")
+        except Exception as e:
+            print(f"⚠ 解析环境变量 CONFIG 失败：{e}")
+    
+    # 如果环境变量中没有，使用本地配置
+    if not user or not pwd:
+        user = USER
+        pwd = PWD
+        if user == "your_phone_or_email" or pwd == "your_password":
+            print("✗ 错误：请先在代码中配置您的账号和密码！")
+            print("  请修改 USER 和 PWD 常量的值，或设置环境变量 CONFIG")
+            exit(1)
+        print("✓ 账号密码：使用本地配置常量")
+    
+    print(f"  账号：{desensitize_user_name(user)}")
+    
+    # 2. 读取 AES_KEY 配置
+    aes_key_str = None
+    
+    # 优先从环境变量读取
+    if os.environ.get("AES_KEY"):
+        aes_key_str = os.environ.get("AES_KEY")
+        print("✓ AES密钥：从环境变量 AES_KEY 中读取")
+    # 如果环境变量中没有，使用本地配置
+    elif AES_KEY is not None:
+        aes_key_str = AES_KEY
+        print("✓ AES密钥：使用本地配置常量")
+    else:
+        print("○ AES密钥：未配置（加密保存功能将不可用）")
     
     # 初始化加密支持
     encrypt_support = False
     user_tokens = dict()
     
-    if AES_KEY is not None:
-        aes_key = AES_KEY.encode('utf-8')
+    if aes_key_str is not None:
+        aes_key = aes_key_str.encode('utf-8')
         if len(aes_key) == 16:
             encrypt_support = True
             user_tokens = prepare_user_tokens()
-            print("加密保存功能已启用")
+            print("  加密保存功能已启用")
         else:
-            print("警告：AES_KEY长度不是16位，无法使用加密保存功能")
-    else:
-        print("加密保存功能未启用")
+            print(f"  ⚠ 警告：AES_KEY长度为{len(aes_key)}位，不是16位，无法使用加密保存功能")
+    
+    print("-"*50)
     
     # 根据星期几获取步数范围
     min_step, max_step = get_weekday_step_range()
+    
+    # 初始化配置字典（用于兼容现有代码）
+    config = {}
     
     # 执行刷步数
     print("\n开始执行刷步数...")
     print("-"*50)
     
     try:
-        runner = MiMotionRunner(USER, PWD)
+        runner = MiMotionRunner(user, pwd)
         exec_msg, success = runner.login_and_post_step(min_step, max_step)
         
         print(runner.log_str)
