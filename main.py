@@ -51,8 +51,8 @@ def get_weekday_step_range():
         max_step = 3000
         day_name = ["周一", "周二", "周三", "周四", "周五"][weekday]
     else:  # 周末 (5-6)
-        min_step = 3000
-        max_step = 3200
+        min_step = 3200
+        max_step = 3300
         day_name = "周六" if weekday == 5 else "周日"
     
     print(f"今天是{day_name}，步数范围：{min_step} ~ {max_step}")
