@@ -12,8 +12,9 @@ import time
 import os
 
 import requests
-from util.aes_help import  encrypt_data, decrypt_data
+from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
+
 
 # 获取默认值转int
 def get_int_value_default(_config: dict, _key, default):
@@ -45,7 +46,7 @@ def get_weekday_step_range():
     """
     current_time = get_beijing_time()
     weekday = current_time.weekday()  # 0=周一, 1=周二, ..., 6=周日
-    
+
     if weekday < 5:  # 周一到周五 (0-4)
         min_step = 8000
         max_step = 12000
@@ -54,7 +55,7 @@ def get_weekday_step_range():
         min_step = 6000
         max_step = 10000
         day_name = "周六" if weekday == 5 else "周日"
-    
+
     print(f"今天是{day_name}，步数范围：{min_step} ~ {max_step}")
     return min_step, max_step
 
@@ -106,6 +107,7 @@ def get_error_code(location):
     if result is None or len(result) == 0:
         return None
     return result[0]
+
 
 #
 # # pushplus消息推送
@@ -166,7 +168,7 @@ class MiMotionRunner:
             if self.device_id is None:
                 self.device_id = str(uuid.uuid4())
                 user_token_info["device_id"] = self.device_id
-            ok,msg = zeppHelper.check_app_token(app_token)
+            ok, msg = zeppHelper.check_app_token(app_token)
             if ok:
                 self.log_str += "使用加密保存的app_token\n"
                 return app_token
@@ -176,7 +178,8 @@ class MiMotionRunner:
                 app_token, msg = zeppHelper.grant_app_token(login_token)
                 if app_token is None:
                     self.log_str += f"login_token 失效 重新获取 last grant time: {user_token_info.get('login_token_time')}\n"
-                    login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id, self.is_phone)
+                    login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
+                                                                                         self.is_phone)
                     if login_token is None:
                         self.log_str += f"access_token 已失效：{msg} last grant time:{user_token_info.get('access_token_time')}\n"
                     else:
@@ -199,7 +202,8 @@ class MiMotionRunner:
             self.log_str += "登录获取accessToken失败：%s" % msg
             return None
         # print(f"device_id:{self.device_id} isPhone: {self.is_phone}")
-        login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id, self.is_phone)
+        login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
+                                                                             self.is_phone)
         if login_token is None:
             self.log_str += f"登录提取的 access_token 无效：{msg}"
             return None
@@ -219,7 +223,6 @@ class MiMotionRunner:
         user_tokens[self.user] = user_token_info
         return app_token
 
-
     # 主函数
     def login_and_post_step(self, min_step, max_step):
         if self.invalid:
@@ -232,6 +235,7 @@ class MiMotionRunner:
         self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
         ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
         return f"修改步数（{step}）[" + msg + "]", ok
+
 
 #
 # # 启动主函数
@@ -327,6 +331,7 @@ def prepare_user_tokens() -> dict:
     else:
         return dict()
 
+
 def persist_user_tokens():
     data_path = r"encrypted_tokens.data"
     origin_str = json.dumps(user_tokens, ensure_ascii=False)
@@ -346,28 +351,29 @@ PWD = "yue3"  # 小米运动密码
 # AES密钥配置（用于加密保存token，可选功能）
 AES_KEY = "asdhf34564edsqwe"  # 例如: "your16charkey123"
 
+
 # ===================================================
 
 
 def run_local():
     """本地执行主函数 - 单账号版本"""
     global time_bj, encrypt_support, user_tokens, aes_key, config, min_step, max_step
-    
-    print("="*50)
+
+    print("=" * 50)
     print("小米运动刷步数工具 - 本地版")
-    print("="*50)
-    
+    print("=" * 50)
+
     # 北京时间
     time_bj = get_beijing_time()
     print(f"当前时间：{format_now()}")
-    print("-"*50)
-    
+    print("-" * 50)
+
     # ========== 配置读取：优先环境变量，其次本地配置 ==========
-    
+
     # 1. 读取账号密码配置
     user = None
     pwd = None
-    
+
     # 优先从环境变量 CONFIG 中读取
     if os.environ.get("CONFIG"):
         try:
@@ -380,7 +386,7 @@ def run_local():
                 print("⚠ 环境变量 CONFIG 中未找到有效的账号密码配置")
         except Exception as e:
             print(f"⚠ 解析环境变量 CONFIG 失败：{e}")
-    
+
     # 如果环境变量中没有，使用本地配置
     if not user or not pwd:
         user = USER
@@ -390,27 +396,27 @@ def run_local():
             print("  请修改 USER 和 PWD 常量的值，或设置环境变量 CONFIG")
             exit(1)
         print("✓ 账号密码：使用本地配置常量")
-    
+
     print(f"  账号：{desensitize_user_name(user)}")
-    
+
     # 2. 读取 AES_KEY 配置
     aes_key_str = None
-    
+
     # 优先从环境变量读取
     if os.environ.get("AES_KEY"):
         aes_key_str = os.environ.get("AES_KEY")
-        print("✓ AES密钥：从环境变量 AES_KEY 中读取")
+        print("✓ AES密钥：从环境变量 AES_KEY 中读取", aes_key_str)
     # 如果环境变量中没有，使用本地配置
     elif AES_KEY is not None:
         aes_key_str = AES_KEY
         print("✓ AES密钥：使用本地配置常量")
     else:
         print("○ AES密钥：未配置（加密保存功能将不可用）")
-    
+
     # 初始化加密支持
     encrypt_support = False
     user_tokens = dict()
-    
+
     if aes_key_str is not None:
         aes_key = aes_key_str.encode('utf-8')
         if len(aes_key) == 16:
@@ -419,41 +425,41 @@ def run_local():
             print("  加密保存功能已启用")
         else:
             print(f"  ⚠ 警告：AES_KEY长度为{len(aes_key)}位，不是16位，无法使用加密保存功能")
-    
-    print("-"*50)
-    
+
+    print("-" * 50)
+
     # 根据星期几获取步数范围
     min_step, max_step = get_weekday_step_range()
-    
+
     # 初始化配置字典（用于兼容现有代码）
     config = {}
-    
+
     # 执行刷步数
     print("\n开始执行刷步数...")
-    print("-"*50)
-    
+    print("-" * 50)
+
     try:
         runner = MiMotionRunner(user, pwd)
         exec_msg, success = runner.login_and_post_step(min_step, max_step)
-        
+
         print(runner.log_str)
         print(f"执行结果：{exec_msg}")
-        
+
         if success:
             print("\n✓ 刷步数成功！")
         else:
             print("\n✗ 刷步数失败！")
-        
+
         # 如果启用了加密保存，保存token
         if encrypt_support:
             persist_user_tokens()
             print("已保存登录token")
-            
+
     except Exception as e:
         print(f"执行异常：{str(e)}")
         traceback.print_exc()
-    
-    print("="*50)
+
+    print("=" * 50)
 
 
 # ==================== GitHub Actions 执行配置（原版） ====================

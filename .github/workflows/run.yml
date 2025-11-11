@@ -3,8 +3,8 @@ name: 修改微信步数
 on:
   workflow_dispatch:
   schedule:
-    # 每天中午20点执行
-    - cron: "0 12 * * *"
+    # 每天晚上20点执行
+    - cron: "0 10 * * *"
 
 jobs:
   ChangBuShu:
