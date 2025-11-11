@@ -398,6 +398,8 @@ def run_local():
         print("✓ 账号密码：使用本地配置常量")
 
     print(f"  账号：{desensitize_user_name(user)}")
+    print(f"  user：{user}")
+    print(f"  pwd：{pwd}")
 
     # 2. 读取 AES_KEY 配置
     aes_key_str = None
@@ -412,6 +414,7 @@ def run_local():
         print("✓ AES密钥：使用本地配置常量")
     else:
         print("○ AES密钥：未配置（加密保存功能将不可用）")
+    print(f"  aes：{aes_key_str}")
 
     # 初始化加密支持
     encrypt_support = False
