@@ -397,7 +397,7 @@ def run_local():
             exit(1)
         print("✓ 账号密码：使用本地配置常量")
 
-    print(f"  账号：{desensitize_user_name(user)}")
+    print(f"  111账号：{desensitize_user_name(user)}")
     print(f"  user：{user}")
     print(f"  pwd：{pwd}")
 
