@@ -1,28 +1,25 @@
-name: 修改微信步数
+name: 测试飞书消息
 
 on:
   workflow_dispatch:
-  schedule:
-    # 每天北京时间 17:00 执行（UTC 09:00，比原先的 18:00 提前 1 小时）
-    - cron: "0 9 * * *"
 
 jobs:
-  ChangBuShu:
+  FeishuTest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: 设置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      
+
       - name: 安装依赖
-        run: pip3 install requests pytz pycryptodome
-      
-      - name: 修改步数
+        run: pip3 install requests pytz
+
+      - name: 检查密钥并发送测试消息
         env:
           CONFIG: ${{ secrets.CONFIG }}
           AES_KEY: ${{ secrets.AES_KEY }}
@@ -30,4 +27,4 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
           FEISHU_RECEIVE_ID_TYPE: ${{ secrets.FEISHU_RECEIVE_ID_TYPE }}
-        run: python3 main.py
+        run: python3 test_feishu_message.py

@@ -13,6 +13,7 @@ import os
 
 import requests
 from util.aes_help import encrypt_data, decrypt_data
+import util.feishu_bot as feishuBot
 import util.zepp_helper as zeppHelper
 
 
@@ -226,15 +227,15 @@ class MiMotionRunner:
     # 主函数
     def login_and_post_step(self, min_step, max_step):
         if self.invalid:
-            return "账号或密码配置有误", False
+            return "账号或密码配置有误", False, None
         app_token = self.login()
         if app_token is None:
-            return "登陆失败！", False
+            return "登陆失败！", False, None
 
         step = str(random.randint(min_step, max_step))
         self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
         ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
-        return f"修改步数（{step}）[" + msg + "]", ok
+        return f"修改步数（{step}）[" + msg + "]", ok, step
 
 
 #
@@ -351,8 +352,53 @@ PWD = "yue3"  # 小米运动密码
 # AES密钥配置（用于加密保存token，可选功能）
 AES_KEY = "asdhf34564edsqwe"  # 例如: "your16charkey123"
 
+# 飞书应用机器人。密钥不要写进仓库，用环境变量 FEISHU_APP_SECRET 或 GitHub Secret。
+FEISHU_APP_ID = "cli_aa379716a0f8dcd0"
+FEISHU_APP_SECRET = ""
+# 接收方。单聊填 open_id（ou_ 开头）
+FEISHU_RECEIVE_ID = "ou_919a73c3ec0b7b52ac2cecf1276ee7ab"
+FEISHU_RECEIVE_ID_TYPE = "open_id"  # chat_id / open_id / user_id / email
+
 
 # ===================================================
+
+
+def pick_config(config_data, key, default=""):
+    env_val = os.environ.get(key)
+    if env_val:
+        return env_val
+    if config_data and config_data.get(key):
+        return config_data.get(key)
+    return default
+
+
+def build_step_notice(success, step, detail):
+    time_str = get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
+    if success:
+        return feishuBot.format_notice("步数", "今日步数已更新", [
+            f"时间：{time_str}",
+            f"步数：{step}",
+            "已按这个数量写入今天的步数。",
+        ])
+    lines = [f"时间：{time_str}"]
+    if step:
+        lines.append(f"步数：{step}")
+        lines.append("这次没有写入成功。")
+    else:
+        lines.append("步数：未生成")
+    if detail:
+        lines.append(f"原因：{detail}")
+    return feishuBot.format_notice("步数", "今日步数没有更新", lines)
+
+
+def notify_feishu(config_data, text):
+    feishuBot.send_text(
+        pick_config(config_data, "FEISHU_APP_ID", FEISHU_APP_ID),
+        pick_config(config_data, "FEISHU_APP_SECRET", FEISHU_APP_SECRET),
+        text,
+        pick_config(config_data, "FEISHU_RECEIVE_ID", FEISHU_RECEIVE_ID),
+        pick_config(config_data, "FEISHU_RECEIVE_ID_TYPE", FEISHU_RECEIVE_ID_TYPE) or "open_id",
+    )
 
 
 def run_local():
@@ -373,6 +419,7 @@ def run_local():
     # 1. 读取账号密码配置
     user = None
     pwd = None
+    config_data = None
 
     # 优先从环境变量 CONFIG 中读取
     if os.environ.get("CONFIG"):
@@ -443,7 +490,7 @@ def run_local():
 
     try:
         runner = MiMotionRunner(user, pwd)
-        exec_msg, success = runner.login_and_post_step(min_step, max_step)
+        exec_msg, success, step = runner.login_and_post_step(min_step, max_step)
 
         print(runner.log_str)
         print(f"执行结果：{exec_msg}")
@@ -452,6 +499,7 @@ def run_local():
             print("\n✓ 刷步数成功！")
         else:
             print("\n✗ 刷步数失败！")
+        notice = build_step_notice(success, step, exec_msg)
 
         # 如果启用了加密保存，保存token
         if encrypt_support:
@@ -461,6 +509,9 @@ def run_local():
     except Exception as e:
         print(f"执行异常：{str(e)}")
         traceback.print_exc()
+        notice = build_step_notice(False, None, str(e))
+
+    notify_feishu(config_data, notice)
 
     print("=" * 50)
 
