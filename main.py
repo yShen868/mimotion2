@@ -1,4 +1,5 @@
 # -*- coding: utf8 -*-
+import base64
 import math
 import traceback
 from datetime import datetime
@@ -145,84 +146,104 @@ class MiMotionRunner:
             self.invalid = True
             pass
         self.password = password
-        if (user.startswith("+86")) or "@" in user:
-            user = user
-        else:
-            user = "+86" + user
-        if user.startswith("+86"):
-            self.is_phone = True
-        else:
-            self.is_phone = False
+        user = normalize_account(user)
+        self.is_phone = user.startswith("+86")
         self.user = user
         # self.fake_ip_addr = fake_ip()
         # self.log_str += f"创建虚拟ip地址：{self.fake_ip_addr}\n"
 
-    # 登录
-    def login(self):
+    def _remember_token(self, info):
+        if not info.get("device_id"):
+            info["device_id"] = str(self.device_id)
+        self.device_id = info.get("device_id") or self.device_id
+        self.user_id = info.get("user_id")
+        user_tokens[self.user] = info
+        persist_user_tokens()
+
+    def _refresh_from_saved(self, info):
+        login_token = info.get("login_token")
+        access_token = info.get("access_token")
+        if login_token:
+            app_token, msg = zeppHelper.grant_app_token(login_token)
+            if app_token:
+                info["app_token"] = app_token
+                info["app_token_time"] = get_time()
+                self.log_str += "重新获取 app_token 成功\n"
+                self._remember_token(info)
+                return app_token
+            self.log_str += f"login_token 失效：{msg} last grant time: {info.get('login_token_time')}\n"
+        if access_token:
+            login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(
+                access_token, self.device_id, self.is_phone
+            )
+            if login_token:
+                info["login_token"] = login_token
+                info["app_token"] = app_token
+                info["user_id"] = user_id
+                info["login_token_time"] = get_time()
+                info["app_token_time"] = get_time()
+                self.user_id = user_id
+                self.log_str += "用 access_token 重新获取成功\n"
+                self._remember_token(info)
+                return app_token
+            self.log_str += f"access_token 已失效：{msg} last grant time:{info.get('access_token_time')}\n"
+        return None
+
+    # 登录。7 天内直接用 json 里的 token，不再每次请求。
+    def login(self, force_refresh=False):
         user_token_info = user_tokens.get(self.user)
         if user_token_info is not None:
-            access_token = user_token_info.get("access_token")
-            login_token = user_token_info.get("login_token")
-            app_token = user_token_info.get("app_token")
-            self.device_id = user_token_info.get("device_id")
+            self.device_id = user_token_info.get("device_id") or self.device_id
             self.user_id = user_token_info.get("user_id")
             if self.device_id is None:
                 self.device_id = str(uuid.uuid4())
                 user_token_info["device_id"] = self.device_id
-            ok, msg = zeppHelper.check_app_token(app_token)
-            if ok:
-                self.log_str += "使用加密保存的app_token\n"
-                return app_token
-            else:
-                self.log_str += f"app_token失效 重新获取 last grant time: {user_token_info.get('app_token_time')}\n"
-                # 检查login_token是否可用
-                app_token, msg = zeppHelper.grant_app_token(login_token)
-                if app_token is None:
-                    self.log_str += f"login_token 失效 重新获取 last grant time: {user_token_info.get('login_token_time')}\n"
-                    login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
-                                                                                         self.is_phone)
-                    if login_token is None:
-                        self.log_str += f"access_token 已失效：{msg} last grant time:{user_token_info.get('access_token_time')}\n"
-                    else:
-                        user_token_info["login_token"] = login_token
-                        user_token_info["app_token"] = app_token
-                        user_token_info["user_id"] = user_id
-                        user_token_info["login_token_time"] = get_time()
-                        user_token_info["app_token_time"] = get_time()
-                        self.user_id = user_id
-                        return app_token
-                else:
-                    self.log_str += "重新获取app_token成功\n"
-                    user_token_info["app_token"] = app_token
-                    user_token_info["app_token_time"] = get_time()
-                    return app_token
+            if not force_refresh and token_still_valid(user_token_info):
+                self.log_str += "使用 json 中的 token，未满 7 天，跳过重新获取\n"
+                return user_token_info.get("app_token")
+            self.log_str += "token 已超过 7 天或已失效，重新获取并写回 json\n"
+            try:
+                refreshed = self._refresh_from_saved(user_token_info)
+            except Exception as e:
+                if not force_refresh and user_token_info.get("app_token"):
+                    self.log_str += f"重新获取失败，继续使用已保存 token：{e}\n"
+                    return user_token_info.get("app_token")
+                raise
+            if refreshed:
+                return refreshed
 
-        # access_token 失效 或者没有保存加密数据
         access_token, msg = zeppHelper.login_access_token(self.user, self.password)
         if access_token is None:
             self.log_str += "登录获取accessToken失败：%s" % msg
             return None
-        # print(f"device_id:{self.device_id} isPhone: {self.is_phone}")
         login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
                                                                              self.is_phone)
         if login_token is None:
             self.log_str += f"登录提取的 access_token 无效：{msg}"
             return None
 
-        user_token_info = dict()
-        user_token_info["access_token"] = access_token
-        user_token_info["login_token"] = login_token
-        user_token_info["app_token"] = app_token
-        user_token_info["user_id"] = user_id
-        # 记录token获取时间
-        user_token_info["access_token_time"] = get_time()
-        user_token_info["login_token_time"] = get_time()
-        user_token_info["app_token_time"] = get_time()
-        if self.device_id is None:
-            self.device_id = uuid.uuid4()
-        user_token_info["device_id"] = self.device_id
-        user_tokens[self.user] = user_token_info
+        user_token_info = {
+            "access_token": access_token,
+            "login_token": login_token,
+            "app_token": app_token,
+            "user_id": user_id,
+            "access_token_time": get_time(),
+            "login_token_time": get_time(),
+            "app_token_time": get_time(),
+            "device_id": str(self.device_id),
+        }
+        self._remember_token(user_token_info)
         return app_token
+
+    def submit_step(self, step, app_token):
+        ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
+        if ok or not is_token_rejected(msg):
+            return ok, msg
+        self.log_str += f"提交时 token 已过期（{msg}），重新获取后再写入\n"
+        app_token = self.login(force_refresh=True)
+        if app_token is None:
+            return False, msg
+        return zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
 
     # 主函数
     def login_and_post_step(self, min_step, max_step):
@@ -234,7 +255,19 @@ class MiMotionRunner:
 
         step = str(random.randint(min_step, max_step))
         self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
-        ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
+        ok, msg = self.submit_step(step, app_token)
+        return f"修改步数（{step}）[" + msg + "]", ok, step
+
+    def login_and_post_exact_step(self, step):
+        if self.invalid:
+            return "账号或密码配置有误", False, None
+        app_token = self.login()
+        if app_token is None:
+            return "登陆失败！", False, None
+
+        step = str(int(step))
+        self.log_str += f"已设置为指定步数:{step}\n"
+        ok, msg = self.submit_step(step, app_token)
         return f"修改步数（{step}）[" + msg + "]", ok, step
 
 
@@ -317,30 +350,100 @@ class MiMotionRunner:
 #         exit(1)
 
 
-def prepare_user_tokens() -> dict:
-    data_path = r"encrypted_tokens.data"
-    if os.path.exists(data_path):
-        with open(data_path, 'rb') as f:
+# 登录名来自 CONFIG 密钥或本地配置。AES 密钥取登录名前 16 个字符，不足补 0。
+# json 里只保存密文和时间，不写登录账号，也不写密钥。
+TOKEN_STORE_FILE = "token_store.json"
+TOKEN_VALID_MS = 7 * 24 * 60 * 60 * 1000
+LOGIN_KEY_BYTES = 16
+token_login_name = ""
+
+
+def normalize_account(user):
+    user = str(user).strip()
+    if user.startswith("+86") or "@" in user:
+        return user
+    return "+86" + user
+
+
+def login_aes_key(login_name):
+    raw = str(login_name).strip().encode("utf-8")
+    return raw[:LOGIN_KEY_BYTES].ljust(LOGIN_KEY_BYTES, b"0")
+
+
+def token_still_valid(info):
+    if not info or not info.get("app_token") or not info.get("app_token_time"):
+        return False
+    try:
+        age = int(get_time()) - int(float(info.get("app_token_time")))
+    except (TypeError, ValueError):
+        return False
+    return age < TOKEN_VALID_MS
+
+
+def is_token_rejected(msg):
+    text = str(msg or "").lower()
+    if any(code in text for code in ("401", "403")):
+        return True
+    keys = ("token", "auth", "expired", "expire", "过期", "失效", "invalid", "未登录")
+    return any(key in text for key in keys)
+
+
+def _load_legacy_tokens(legacy_key):
+    data_path = "encrypted_tokens.data"
+    if legacy_key is None or len(legacy_key) != 16 or not os.path.exists(data_path):
+        return None
+    try:
+        with open(data_path, "rb") as f:
             data = f.read()
+        plain = decrypt_data(data, legacy_key, None)
+        loaded = json.loads(plain.decode("utf-8", errors="strict"))
+    except Exception:
+        return None
+    if isinstance(loaded, dict) and loaded:
+        print("已从旧的 encrypted_tokens.data 读出 token，接下来写入 json")
+        return loaded
+    return None
+
+
+def _write_token_file(token_text, saved_at):
+    body = {
+        "saved_at": saved_at,
+        "token": token_text,
+    }
+    with open(TOKEN_STORE_FILE, "w", encoding="utf-8") as f:
+        json.dump(body, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def prepare_user_tokens(legacy_key=None) -> dict:
+    if os.path.exists(TOKEN_STORE_FILE):
         try:
-            decrypted_data = decrypt_data(data, aes_key, None)
-            # 假设原始明文为 UTF-8 编码文本
-            return json.loads(decrypted_data.decode('utf-8', errors='strict'))
-        except:
-            print("密钥不正确或者加密内容损坏 放弃token")
+            with open(TOKEN_STORE_FILE, "r", encoding="utf-8") as f:
+                body = json.load(f)
+            cipher = base64.b64decode(body["token"])
+            plain = decrypt_data(cipher, aes_key, None)
+            loaded = json.loads(plain.decode("utf-8", errors="strict"))
+            if not isinstance(loaded, dict):
+                raise ValueError("token json 内容无效")
+            if "name_prefix" in body:
+                _write_token_file(body["token"], body.get("saved_at") or format_now())
+            return loaded
+        except Exception:
+            print("token 文件无法解密，将重新获取并覆盖")
             return dict()
-    else:
-        return dict()
+    legacy = _load_legacy_tokens(legacy_key)
+    if legacy is not None:
+        return legacy
+    return dict()
 
 
 def persist_user_tokens():
-    data_path = r"encrypted_tokens.data"
-    origin_str = json.dumps(user_tokens, ensure_ascii=False)
-    cipher_data = encrypt_data(origin_str.encode("utf-8"), aes_key, None)
-    with open(data_path, 'wb') as f:
-        f.write(cipher_data)
-        f.flush()
-        f.close()
+    if not user_tokens:
+        return
+    origin = json.dumps(user_tokens, ensure_ascii=False).encode("utf-8")
+    cipher = encrypt_data(origin, aes_key, None)
+    _write_token_file(base64.b64encode(cipher).decode("ascii"), format_now())
+    print(f"已加密写入 {TOKEN_STORE_FILE}")
 
 
 # ==================== 本地执行配置 ====================
@@ -372,14 +475,19 @@ def pick_config(config_data, key, default=""):
     return default
 
 
-def build_step_notice(success, step, detail):
+def build_step_notice(success, step, detail, test=False):
     time_str = get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
+    kind = "测试步数" if test else "步数"
     if success:
-        return feishuBot.format_notice("步数", "今日步数已更新", [
+        lines = [
             f"时间：{time_str}",
             f"步数：{step}",
-            "已按这个数量写入今天的步数。",
-        ])
+        ]
+        if test:
+            lines.append("这是测试写入。下次成功后会在这个数字上加 1。")
+        else:
+            lines.append("已按这个数量写入今天的步数。")
+        return feishuBot.format_notice(kind, "今日步数已更新", lines)
     lines = [f"时间：{time_str}"]
     if step:
         lines.append(f"步数：{step}")
@@ -388,7 +496,7 @@ def build_step_notice(success, step, detail):
         lines.append("步数：未生成")
     if detail:
         lines.append(f"原因：{detail}")
-    return feishuBot.format_notice("步数", "今日步数没有更新", lines)
+    return feishuBot.format_notice(kind, "今日步数没有更新", lines)
 
 
 def notify_feishu(config_data, text):
@@ -401,9 +509,9 @@ def notify_feishu(config_data, text):
     )
 
 
-def run_local():
-    """本地执行主函数 - 单账号版本"""
-    global time_bj, encrypt_support, user_tokens, aes_key, config, min_step, max_step
+def run_local(fixed_step=None):
+    """本地执行主函数 - 单账号版本。fixed_step 有值时写入这个固定步数。"""
+    global time_bj, encrypt_support, user_tokens, aes_key, config, min_step, max_step, token_login_name
 
     print("=" * 50)
     print("小米运动刷步数工具 - 本地版")
@@ -448,38 +556,27 @@ def run_local():
     print(f"  user：{user}")
     print(f"  pwd：{pwd}")
 
-    # 2. 读取 AES_KEY 配置
-    aes_key_str = None
-
-    # 优先从环境变量读取
-    if os.environ.get("AES_KEY"):
-        aes_key_str = os.environ.get("AES_KEY")
-        print("✓ AES密钥：从环境变量 AES_KEY 中读取", aes_key_str)
-    # 如果环境变量中没有，使用本地配置
-    elif AES_KEY is not None:
-        aes_key_str = AES_KEY
-        print("✓ AES密钥：使用本地配置常量")
-    else:
-        print("○ AES密钥：未配置（加密保存功能将不可用）")
-    print(f"  aes：{aes_key_str}")
-
-    # 初始化加密支持
-    encrypt_support = False
-    user_tokens = dict()
-
-    if aes_key_str is not None:
-        aes_key = aes_key_str.encode('utf-8')
-        if len(aes_key) == 16:
-            encrypt_support = True
-            user_tokens = prepare_user_tokens()
-            print("  加密保存功能已启用")
-        else:
-            print(f"  ⚠ 警告：AES_KEY长度为{len(aes_key)}位，不是16位，无法使用加密保存功能")
+    # token 用登录名前 16 位加密后写入 json。登录名优先来自 CONFIG 密钥。
+    token_login_name = normalize_account(user)
+    aes_key = login_aes_key(token_login_name)
+    encrypt_support = True
+    legacy_raw = os.environ.get("AES_KEY") or AES_KEY or ""
+    legacy_key = legacy_raw.encode("utf-8") if len(legacy_raw.encode("utf-8")) == 16 else None
+    user_tokens = prepare_user_tokens(legacy_key)
+    if user_tokens and not os.path.exists(TOKEN_STORE_FILE):
+        persist_user_tokens()
+    print("✓ token：用登录名前 16 位加密，写入 token_store.json")
+    print("  未满 7 天直接复用；接口提示过期或满 7 天后重新获取并覆盖 json")
 
     print("-" * 50)
 
-    # 根据星期几获取步数范围
-    min_step, max_step = get_weekday_step_range()
+    # 根据星期几获取步数范围；测试模式使用指定步数
+    if fixed_step is None:
+        min_step, max_step = get_weekday_step_range()
+    else:
+        fixed_step = int(fixed_step)
+        min_step, max_step = fixed_step, fixed_step
+        print(f"测试模式，指定步数：{fixed_step}")
 
     # 初始化配置字典（用于兼容现有代码）
     config = {}
@@ -488,9 +585,13 @@ def run_local():
     print("\n开始执行刷步数...")
     print("-" * 50)
 
+    success = False
     try:
         runner = MiMotionRunner(user, pwd)
-        exec_msg, success, step = runner.login_and_post_step(min_step, max_step)
+        if fixed_step is None:
+            exec_msg, success, step = runner.login_and_post_step(min_step, max_step)
+        else:
+            exec_msg, success, step = runner.login_and_post_exact_step(fixed_step)
 
         print(runner.log_str)
         print(f"执行结果：{exec_msg}")
@@ -499,21 +600,19 @@ def run_local():
             print("\n✓ 刷步数成功！")
         else:
             print("\n✗ 刷步数失败！")
-        notice = build_step_notice(success, step, exec_msg)
-
-        # 如果启用了加密保存，保存token
-        if encrypt_support:
-            persist_user_tokens()
-            print("已保存登录token")
+        notice = build_step_notice(success, step, exec_msg, test=fixed_step is not None)
 
     except Exception as e:
         print(f"执行异常：{str(e)}")
         traceback.print_exc()
-        notice = build_step_notice(False, None, str(e))
+        success = False
+        failed_step = str(fixed_step) if fixed_step is not None else None
+        notice = build_step_notice(False, failed_step, str(e), test=fixed_step is not None)
 
     notify_feishu(config_data, notice)
 
     print("=" * 50)
+    return success
 
 
 # ==================== GitHub Actions 执行配置（原版） ====================

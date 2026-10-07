@@ -1,13 +1,10 @@
-name: 修改微信步数
+name: 测试步数自增
 
 on:
   workflow_dispatch:
-  schedule:
-    # 每天北京时间 17:00 执行（UTC 09:00，比原先的 18:00 提前 1 小时）
-    - cron: "0 9 * * *"
 
 jobs:
-  ChangBuShu:
+  TestStep:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -15,16 +12,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: 设置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      
+
       - name: 安装依赖
         run: pip3 install requests pytz pycryptodome
-      
-      - name: 修改步数
+
+      - name: 写入自增测试步数
         env:
           CONFIG: ${{ secrets.CONFIG }}
           AES_KEY: ${{ secrets.AES_KEY }}
@@ -32,20 +29,19 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
           FEISHU_RECEIVE_ID_TYPE: ${{ secrets.FEISHU_RECEIVE_ID_TYPE }}
-        run: python3 main.py
+        run: python3 test_step_increment.py
 
-      - name: 保存加密后的登录 token
+      - name: 保存下次测试步数
         run: |
-          if [ ! -f token_store.json ]; then
-            echo "没有新的 token 文件"
-            exit 0
+          git add test_step_state.json
+          if [ -f token_store.json ]; then
+            git add token_store.json
           fi
-          git add token_store.json
           if git diff --cached --quiet; then
-            echo "token 文件没有变化"
+            echo "记录没有变化"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "chore: 更新加密后的登录 token"
+            git commit -m "chore: 保存测试步数与登录 token"
             git push
           fi
