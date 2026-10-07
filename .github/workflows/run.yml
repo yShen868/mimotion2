@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # 每天北京时间 17:00 执行（UTC 09:00，比原先的 18:00 提前 1 小时）
-    - cron: "0 9 * * *"
+    - cron: "0 8 * * *"
 
 jobs:
   ChangBuShu:
