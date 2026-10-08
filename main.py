@@ -668,5 +668,6 @@ def run_local(fixed_step=None):
 
 
 if __name__ == "__main__":
-    # 本地执行入口
-    run_local()
+    # 失败时返回非 0，定时任务才不会把今天记成已执行
+    if not run_local():
+        exit(1)
