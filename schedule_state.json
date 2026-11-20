@@ -1,6 +1,6 @@
 {
   "date": "2026-11-20",
-  "executed_at": "2026-11-20 00:29:14",
+  "executed_at": "2026-11-20 22:51:27",
   "timezone": "Asia/Shanghai",
-  "trigger": "schedule"
+  "trigger": "workflow_dispatch"
 }
