@@ -1,4 +1,5 @@
 # -*- coding: utf8 -*-
+import hashlib
 import json
 
 import requests
@@ -6,6 +7,7 @@ import requests
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 CHATS_URL = "https://open.feishu.cn/open-apis/im/v1/chats"
+REPLY_URL = "https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/reply"
 
 
 def get_tenant_access_token(app_id: str, app_secret: str) -> str | None:
@@ -100,4 +102,44 @@ def send_text(app_id: str, app_secret: str, text: str, receive_id: str = "", rec
         print(f"[飞书] 推送失败：{data.get('code')}-{data.get('msg')}")
         return False
     print("[飞书] 推送成功")
+    return True
+
+
+def reply_text(app_id: str, app_secret: str, message_id: str, text: str) -> bool:
+    """回复某一条消息。uuid 用 message_id，同一条消息一小时内只会发出一次。"""
+    if not app_id or not app_secret:
+        print("[飞书] 未配置 App ID 或密钥，无法回复")
+        return False
+    if not message_id:
+        print("[飞书] 没有 message_id，无法回复")
+        return False
+
+    token = get_tenant_access_token(app_id, app_secret)
+    if not token:
+        return False
+
+    uuid = message_id if len(message_id) <= 50 else hashlib.sha1(message_id.encode()).hexdigest()
+    body = {
+        "msg_type": "text",
+        "content": json.dumps({"text": text}, ensure_ascii=False),
+        "uuid": uuid,
+    }
+    try:
+        response = requests.post(
+            REPLY_URL.format(message_id=message_id),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            json=body,
+            timeout=20,
+        )
+        data = response.json()
+    except Exception as e:
+        print(f"[飞书] 回复异常：{e}")
+        return False
+    if data.get("code") != 0:
+        print(f"[飞书] 回复失败：{data.get('code')}-{data.get('msg')}")
+        return False
+    print("[飞书] 已回复")
     return True

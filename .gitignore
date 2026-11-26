@@ -1,2 +1,6 @@
 /.idea/
 __pycache__/
+feishu-step-trigger/
+.env
+chat_sessions.json
+chat_system_prompt.txt
