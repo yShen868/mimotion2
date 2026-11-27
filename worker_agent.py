@@ -6,17 +6,28 @@ import requests
 
 import util.github_api as github_api
 import util.job_store as job_store
+import util.repo_files as repo_files
 
 ROOT = job_store.ROOT
-MAX_ROUNDS = 8
+MAX_ROUNDS = 16
 
-WORKER_PROMPT = """你是这个仓库的任务工人。用户在飞书里用中文下指令。
-普通问题直接回答。用户要一个会重复发生、或要你落地执行的结果时，调用工具写任务，不要只给方案。
+WORKER_PROMPT = """你是这个仓库的开发工人。用户在飞书里用中文下指令。
+阅读和修改的是 GitHub 上 master 的代码，不是让用户把文件贴过来。
 
-你只能创建、修改、删除、立即运行 jobs/ 下的定时任务。
-不能改刷步代码，不能改 run.yml，不能索要或打印任何密钥的值。
+改代码的闭环：
+1. 先 list_dir、read_file。可以指定目录，例如 util 或 .github/workflows。
+2. 已有文件用 search_replace，原文必须能在文件里唯一对上。新文件用 write_file。删除用 delete_file。
+3. 改完必须 commit_push。不推送，GitHub 上就没有变化。
+4. 推送后 Actions 会跑单测。通过或失败，刷步机器人会再发一条，内容是检查结果和变更文件。
+5. 对话里说明改了什么和提交号，并告诉用户检查结果会另外发来。不要说部署已经完成。
 
-做任务时：
+范围：
+- 可以改业务代码、定时任务和 workflow，也可以加功能。
+- 不能读或写 .env、token_store.json、schedule_state.json、chat_sessions.json。
+- 不要把「修改微信步数」改成每次 push 都执行。普通代码推送只做检查和通知，刷步仍按原来的定时跑。
+- 不要索要或打印密钥。
+
+做定时任务时：
 1. 已有任务先 list_jobs 或 read_job，改的时候保留原来的抓取逻辑。
 2. save_job 写完整 Python。commit 用 true，这样才会推到 GitHub，定时才会生效。
 3. 第一次创建时 run_now 用 true，先跑一遍把结果推回来。只是改时间或改文案时 run_now 用 false，除非用户说现在跑一次。
@@ -62,18 +73,96 @@ if __name__ == "__main__":
     main()
 
 定时结果用刷步同一个飞书机器人，发给已经在收刷步通知的那个人。不要让用户再配飞书应用密钥。
-用户只是聊天、没有要求落地时，不要调用 save_job。一次只处理一个任务。
+用户只是聊天、没有要求改代码或建任务时，不要改文件，也不要调用 save_job。
 """
 
 TOOL_APPENDIX = """
-你可以调用工具，把定时任务写进这个仓库并由 GitHub Actions 运行。
-只能动 jobs/<任务名>/ 和对应的 job-*.yml，不能改刷步。
-cron 用 UTC 五段。北京时间下午四点是 0 8 * * *。
-脚本必须调用 notify(文字) 推送结果。commit 为 true 才会真正生效。
-第一次创建任务时 run_now 为 true。用户没要求落地时不要保存任务。
+你可以阅读并修改 GitHub 上 master 的项目文件。流程是 list_dir / read_file，再用 search_replace 或 write_file，最后 commit_push。
+推送后 Actions 会检查，完成或失败由刷步机器人另发变更。不要说部署已经完成。
+不能读或写 .env、token_store.json、schedule_state.json。不要让刷步 workflow 在每次 push 时执行。
+定时任务仍用 save_job。cron 用 UTC 五段，北京时间下午四点是 0 8 * * *。
+用户没要求改代码或建任务时，不要改文件。
 """
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "列出 GitHub 仓库某个目录。path 为空表示仓库根目录。",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "相对路径，例如 util 或 .github/workflows"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "阅读 GitHub 上的一个文本文件。改之前先读。",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_replace",
+            "description": "替换已有文件里唯一的一段原文。适合修改功能。原文必须和文件里完全一致。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old": {"type": "string", "description": "要被替换的原文"},
+                    "new": {"type": "string", "description": "替换后的文本"},
+                },
+                "required": ["path", "old", "new"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "新建文件，或覆盖整个文件。改已有文件时优先用 search_replace。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "删除 GitHub 上的一个文件。推送前只是标记。",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "commit_push",
+            "description": "把本轮修改推到 master。推送后 Actions 会检查，并用刷步机器人另发结果。",
+            "parameters": {
+                "type": "object",
+                "properties": {"message": {"type": "string", "description": "提交说明，写清为什么改"}},
+                "required": ["message"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -203,6 +292,81 @@ def _dump(data):
     if len(text) > 7000:
         text = text[:7000] + "…"
     return text
+
+
+def _dirty(context):
+    store = context.get("dirty")
+    if store is None:
+        store = {}
+        context["dirty"] = store
+    return store
+
+
+def _client(context):
+    client = context.get("github")
+    if client is None:
+        client = github_api.load_client()
+        context["github"] = client
+    return client
+
+
+def list_dir(args, context):
+    entries = repo_files.list_dir(_client(context), args.get("path"), _dirty(context))
+    return {"ok": True, "entries": entries}
+
+
+def read_file(args, context):
+    data = repo_files.read_file(_client(context), args.get("path"), _dirty(context))
+    data["ok"] = True
+    return data
+
+
+def search_replace(args, context):
+    path = repo_files.remember_replace(
+        _client(context),
+        _dirty(context),
+        args.get("path"),
+        args.get("old"),
+        args.get("new"),
+    )
+    return {"ok": True, "path": path, "pending": True}
+
+
+def write_file(args, context):
+    path = repo_files.remember_write(_dirty(context), args.get("path"), args.get("content"))
+    return {"ok": True, "path": path, "pending": True}
+
+
+def delete_file(args, context):
+    path = repo_files.remember_delete(_client(context), _dirty(context), args.get("path"))
+    return {"ok": True, "path": path, "pending": True}
+
+
+def commit_push(args, context):
+    message = str(args.get("message") or "").strip()
+    if not message:
+        raise ValueError("提交说明是空的")
+    if len(message) > 500:
+        message = message[:500]
+    dirty = _dirty(context)
+    if not dirty:
+        raise ValueError("没有未推送的修改。先改文件，再推送。")
+    changes = []
+    for path, content in list(dirty.items()):
+        repo_files.clean_path(path)
+        changes.append({"path": path, "content": content})
+    _progress(context, "正在把改动推到 GitHub。检查完成后，刷步机器人会再发一条结果。")
+    client = _client(context)
+    sha, branch = client.commit(changes, message)
+    dirty.clear()
+    return {
+        "ok": True,
+        "sha": sha[:7],
+        "branch": branch,
+        "files": [item["path"] for item in changes],
+        "url": f"https://github.com/{client.owner}/{client.repo}/commit/{sha}",
+        "next": "代码已推到 master。Actions 检查结束后，刷步机器人会另发结果和变更列表。刷步定时不会因此立刻执行。",
+    }
 
 
 def list_jobs(_args, _context):
@@ -336,6 +500,12 @@ def job_status(args, _context):
 
 
 HANDLERS = {
+    "list_dir": list_dir,
+    "read_file": read_file,
+    "search_replace": search_replace,
+    "write_file": write_file,
+    "delete_file": delete_file,
+    "commit_push": commit_push,
     "list_jobs": list_jobs,
     "read_job": read_job,
     "save_job": save_job,
@@ -346,7 +516,8 @@ HANDLERS = {
 
 
 def execute(name, args, context):
-    print(f"[任务] {name} {args.get('job_id', '')}".rstrip())
+    label = args.get("job_id") or args.get("path") or ""
+    print(f"[任务] {name} {label}".rstrip())
     handler = HANDLERS.get(name)
     if handler is None:
         return {"ok": False, "error": f"没有工具 {name}"}
@@ -378,6 +549,9 @@ def trace_line(name, args, result):
         return f"已删除任务 {job_id}"
     if name == "run_job":
         return f"已触发任务 {job_id}"
+    if name == "commit_push":
+        files = "、".join(result.get("files") or [])
+        return f"已推送 {result.get('sha')}：{files}。检查结果稍后由刷步机器人发送。"
     return None
 
 

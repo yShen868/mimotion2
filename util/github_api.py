@@ -134,10 +134,20 @@ class GitHub:
             raise GitHubError("分支名不合法。请在 .env 设置 GITHUB_BRANCH。")
         return branch
 
-    def remote_exists(self, path, branch):
+    def contents(self, path, branch):
         quoted = urllib.parse.quote(path, safe="/")
-        response = self.raw("GET", f"/repos/{self.owner}/{self.repo}/contents/{quoted}?ref={urllib.parse.quote(branch)}")
-        return response.status_code == 200
+        suffix = f"/{quoted}" if quoted else ""
+        ref = urllib.parse.quote(branch, safe="")
+        response = self.raw("GET", f"/repos/{self.owner}/{self.repo}/contents{suffix}?ref={ref}")
+        if response.status_code == 404:
+            return 404, {}
+        if response.status_code != 200:
+            raise GitHubError(self._message(response))
+        return 200, response.json()
+
+    def remote_exists(self, path, branch):
+        status, _data = self.contents(path, branch)
+        return status == 200
 
     def _commit_once(self, changes, message):
         if not changes:

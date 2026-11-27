@@ -1,0 +1,51 @@
+name: 代码更新通知
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - token_store.json
+      - schedule_state.json
+      - encrypted_tokens.data
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: 安装依赖
+        run: pip3 install requests
+
+      - name: 运行检查
+        id: check
+        continue-on-error: true
+        run: python3 -m unittest test_worker_jobs.py
+
+      - name: 通知飞书
+        if: always()
+        env:
+          CHECK_RESULT: ${{ steps.check.outcome }}
+          PUSH_REPO: ${{ github.repository }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
+          FEISHU_RECEIVE_ID_TYPE: ${{ secrets.FEISHU_RECEIVE_ID_TYPE }}
+        run: python3 scripts/notify_code_push.py
+
+      - name: 检查未通过则标记失败
+        if: steps.check.outcome == 'failure'
+        run: exit 1

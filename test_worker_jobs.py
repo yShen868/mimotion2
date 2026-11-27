@@ -1,10 +1,13 @@
 # -*- coding: utf8 -*-
+import base64
 import tempfile
 import unittest
 
 import util.github_api as github_api
 import util.job_store as job_store
+import util.repo_files as repo_files
 from jobs._runtime.notify import pick_target
+from scripts.notify_code_push import build_notice
 
 
 class JobStoreTest(unittest.TestCase):
@@ -114,6 +117,57 @@ class JobStoreTest(unittest.TestCase):
         self.assertEqual(secret, "step-secret")
         self.assertEqual(receive_id, "ou_919a73c3ec0b7b52ac2cecf1276ee7ab")
         self.assertEqual(receive_type, "open_id")
+
+
+class RepoFilesTest(unittest.TestCase):
+    def test_rejects_secret_and_parent_paths(self):
+        with self.assertRaises(ValueError):
+            repo_files.clean_path(".env")
+        with self.assertRaises(ValueError):
+            repo_files.clean_path("token_store.json")
+        with self.assertRaises(ValueError):
+            repo_files.clean_path("../main.py")
+        with self.assertRaises(ValueError):
+            repo_files.clean_path("/etc/passwd")
+        self.assertEqual(repo_files.clean_path("util/feishu_bot.py"), "util/feishu_bot.py")
+
+    def test_replace_must_match_once(self):
+        self.assertEqual(repo_files.replace_once("ab", "a", "c"), "cb")
+        with self.assertRaises(ValueError):
+            repo_files.replace_once("aba", "a", "c")
+        with self.assertRaises(ValueError):
+            repo_files.replace_once("ab", "z", "c")
+
+    def test_search_replace_uses_remote_text(self):
+        encoded = base64.b64encode(b"print('hi')\n").decode()
+
+        class Fake:
+            def resolve_branch(self):
+                return "master"
+
+            def contents(self, path, branch):
+                self.path = path
+                return 200, {"type": "file", "encoding": "base64", "content": encoded}
+
+        dirty = {}
+        path = repo_files.remember_replace(Fake(), dirty, "main.py", "print('hi')", "print('ok')")
+        self.assertEqual(path, "main.py")
+        self.assertEqual(dirty["main.py"], "print('ok')\n")
+
+    def test_push_notice_lists_files(self):
+        text = build_notice(
+            {
+                "head_commit": {"id": "abcdef1234567890", "message": "增加金价任务\n\n详情"},
+                "commits": [{"added": ["jobs/gold-price/main.py"], "modified": ["worker_agent.py"], "removed": []}],
+            },
+            "success",
+            "yShen868/mimotion2",
+        )
+        self.assertIn("检查通过", text)
+        self.assertIn("新增 jobs/gold-price/main.py", text)
+        self.assertIn("修改 worker_agent.py", text)
+        self.assertIn("刷步定时没有因此触发", text)
+        self.assertIn("https://github.com/yShen868/mimotion2/commit/abcdef1234567890", text)
 
 
 if __name__ == "__main__":
